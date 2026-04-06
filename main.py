@@ -2,8 +2,6 @@ import telebot
 import os
 import sqlite3
 import random
-import threading
-import time
 from telebot import types
 from flask import Flask
 from threading import Thread
@@ -14,10 +12,9 @@ app = Flask('')
 
 @app.route('/')
 def home(): 
-    return "البوت يعمل بكفاءة على Render! 🎙️"
+    return "البوت يعمل بكفاءة! 🎙️"
 
 def run():
-    # Render يتطلب استخدام PORT من متغيرات البيئة
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
@@ -26,11 +23,10 @@ def keep_alive():
 
 # --- 2. الإعدادات ---
 TOKEN = '8612878316:AAFmiUcKAUl0mO_pcmmSb_TD4xZ2aS18atM'
-ADMIN_ID = 1833628326 
 bot = telebot.TeleBot(TOKEN)
 DB_NAME = 'almuhajir.db'
 
-# --- 3. إدارة قاعدة البيانات (آمنة للخيوط) ---
+# --- 3. إدارة قاعدة البيانات ---
 def init_db():
     with sqlite3.connect(DB_NAME) as conn:
         conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER DEFAULT 0)')
@@ -38,12 +34,16 @@ def init_db():
 
 init_db()
 
-def get_score(user_id):
+def get_user_score(user_id):
     with sqlite3.connect(DB_NAME) as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT score FROM users WHERE id = ?', (user_id,))
         res = cursor.fetchone()
-        return res[0] if res else 0
+        if res: return res[0]
+        else:
+            conn.execute('INSERT INTO users (id, score) VALUES (?, ?)', (user_id, 0))
+            conn.commit()
+            return 0
 
 def update_user_score(user_id, new_score):
     with sqlite3.connect(DB_NAME) as conn:
@@ -69,13 +69,62 @@ hikam_list = [
     "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
 ]
 
-# --- 5. منطق الأسئلة والصوت (خاص بـ Render) ---
+# --- 5. منطق الأسئلة ---
 
 def send_question(chat_id, score, prefix=""):
-    try:
-        q_idx = score % len(questions_pool)
-        q_data = questions_pool[q_idx]
-        markup = types.InlineKeyboardMarkup(row_width=2)
-        btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}") for opt in q_data['options']]
-        markup.add(*btns)
-        bot.send_message(chat_id, f"{prefix}\n❓ *السؤال {score +
+    q_idx = score % len(questions_pool)
+    q_data = questions_pool[q_idx]
+    
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{score}") for opt in q_data['options']]
+    markup.add(*btns)
+    
+    msg_text = f"{prefix}\n\n❓ *السؤال {score + 1}:*\n{q_data['q']}"
+    bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
+
+# --- 6. معالجة الرسائل ---
+
+@bot.message_handler(commands=['start'])
+def welcome(message):
+    score = get_user_score(message.from_user.id)
+    send_question(message.chat.id, score, "مرحباً بك في رحلة المهاجر! 🕋")
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('ans|'))
+def check_answer(call):
+    data = call.data.split('|')
+    user_answer = data[1]
+    current_score = int(data[2])
+    user_id = call.from_user.id
+    
+    q_idx = current_score % len(questions_pool)
+    correct_answer = questions_pool[q_idx]['correct']
+    
+    if user_answer == correct_answer:
+        new_score = current_score + 1
+        update_user_score(user_id, new_score)
+        
+        # اختيار حكمة عشوائية
+        hikma = random.choice(hikam_list)
+        
+        # تحويل الحكمة لصوت وإرسالها (بدون حذف)
+        try:
+            tts = gTTS(text=hikma, lang='ar')
+            voice_file = f"voice_{user_id}.mp3"
+            tts.save(voice_file)
+            
+            with open(voice_file, 'rb') as voice:
+                bot.send_voice(call.message.chat.id, voice, caption=f"✨ حكمة لك:\n_{hikma}_", parse_mode="Markdown")
+            
+            os.remove(voice_file) # حذف الملف المؤقت من السيرفر فقط وليس من التليجرام
+        except Exception as e:
+            bot.send_message(call.message.chat.id, f"✨ حكمة لك:\n{hikma}")
+
+        # الانتقال للسؤال التالي
+        send_question(call.message.chat.id, new_score, "إجابة صحيحة! استمر في رحلتك..")
+    else:
+        bot.answer_callback_query(call.id, "إجابة خاطئة! حاول مجدداً ❌", show_alert=True)
+
+# --- التشغيل ---
+if __name__ == '__main__':
+    keep_alive()
+    bot.infinity_polling()
