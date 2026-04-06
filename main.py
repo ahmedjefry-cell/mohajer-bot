@@ -3,14 +3,15 @@ import os
 import sqlite3
 import random
 import threading
+import time
 from telebot import types
 from flask import Flask
 from threading import Thread
 
-# --- 1. إعداد السيرفر لمنع النوم ---
+# --- 1. إعداد السيرفر ---
 app = Flask('')
 @app.route('/')
-def home(): return "البوت يعمل بكفاءة 100% مع التوقيت التلقائي 🚀"
+def home(): return "البوت يعمل بنجاح! 🚀"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
@@ -20,29 +21,13 @@ ADMIN_ID = 1833628326
 bot = telebot.TeleBot(TOKEN)
 
 # --- 3. قاعدة البيانات ---
-def get_db_connection():
+def get_db():
     conn = sqlite3.connect('almuhajir.db', check_same_thread=False)
+    conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER DEFAULT 0)')
+    conn.commit()
     return conn
 
-def init_db():
-    with get_db_connection() as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER DEFAULT 0)')
-        conn.commit()
-
-init_db()
-
-def set_user_score(user_id, name, score):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('INSERT OR REPLACE INTO users (id, name, score) VALUES (?, ?, ?)', (user_id, name, score))
-        conn.commit()
-
-def get_user_score(user_id):
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT score FROM users WHERE id = ?', (user_id,))
-        res = cursor.fetchone()
-        return res[0] if res else 0
+db = get_db()
 
 # --- 4. محتوى الأسئلة والحكم ---
 questions_pool = [
@@ -63,115 +48,103 @@ hikam_list = [
     "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
 ]
 
-# --- 5. منطق اللعب (النظام التلقائي) ---
+# --- 5. منطق اللعب ---
 
-def send_actual_question(chat_id, score, prefix=""):
-    """دالة إرسال السؤال الفعلي"""
+def send_question(chat_id, score, prefix=""):
     try:
         q_idx = score % len(questions_pool)
         q_data = questions_pool[q_idx]
-        
         markup = types.InlineKeyboardMarkup(row_width=2)
         btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}") for opt in q_data['options']]
         markup.add(*btns)
-        
-        msg_text = f"{prefix}\n❓ *السؤال {score + 1}:*\n\n{q_data['q']}".strip()
-        bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
-    except Exception as e:
-        print(f"Error in send_actual_question: {e}")
+        bot.send_message(chat_id, f"{prefix}\n❓ *السؤال {score + 1}:*\n\n{q_data['q']}", reply_markup=markup, parse_mode="Markdown")
+    except Exception as e: print(f"Err Q: {e}")
 
-def send_next_step(chat_id, score, prefix=""):
-    """الدالة المسؤولة عن فحص محطة الحكمة والمؤقت"""
+def handle_hikma_timer(chat_id, msg_id, score):
+    time.sleep(7)
     try:
-        if score >= 1000:
-            bot.send_message(chat_id, "🏆 **تهانينا!** لقد أتممت 1000 سؤال بنجاح!")
-            return
+        bot.delete_message(chat_id, msg_id)
+    except: pass
+    send_question(chat_id, score)
 
-        # فحص محطة الحكمة (كل 20 سؤال)
-        if score > 0 and score % 20 == 0:
-            h = random.choice(hikam_list)
-            # إرسال الحكمة في رسالة مؤقتة
-            msg = bot.send_message(chat_id, f"💎 **استراحة قصيرة (7 ثوانٍ):**\n\n« {h} »", parse_mode="Markdown")
-            
-            # دالة الموقت لحذف الحكمة وإرسال السؤال
-            def auto_next():
-                try:
-                    bot.delete_message(chat_id, msg.message_id)
-                except: pass
-                send_actual_question(chat_id, score)
-            
-            threading.Timer(7.0, auto_next).start()
-            return
+# --- 6. معالجة الرسائل والأزرار ---
 
-        # إذا لم تكن محطة حكمة، نرسل السؤال مباشرة
-        send_actual_question(chat_id, score, prefix)
-        
-    except Exception as e:
-        print(f"Error in send_next_step: {e}")
-
-# --- 6. معالجة الأزرار ---
 @bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
+def callback_handler(call):
     chat_id = call.message.chat.id
-    score = get_user_score(chat_id)
-    
+    cursor = db.cursor()
+    cursor.execute('SELECT score FROM users WHERE id = ?', (chat_id,))
+    res = cursor.fetchone()
+    score = res[0] if res else 0
+
     if call.data.startswith("ans|"):
         selected = call.data.split("|")[1]
-        q_idx = score % len(questions_pool)
-        correct = questions_pool[q_idx]['correct']
-        
+        correct = questions_pool[score % len(questions_pool)]['correct']
+
         if selected == correct:
-            bot.answer_callback_query(call.id, "✅ صحيح!")
+            bot.answer_callback_query(call.id, "✅ صحيح")
             new_score = score + 1
-            set_user_score(chat_id, call.from_user.first_name, new_score)
+            cursor.execute('UPDATE users SET score = ? WHERE id = ?', (new_score, chat_id))
+            db.commit()
+            
             try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
             except: pass
-            send_next_step(chat_id, new_score)
+
+            if new_score > 0 and new_score % 20 == 0:
+                h = random.choice(hikam_list)
+                msg = bot.send_message(chat_id, f"💎 *حكمة المحطة ({new_score}):*\n\n« {h} »\n\n_(تنتقل للسؤال تلقائياً بعد 7 ثوانٍ)_", parse_mode="Markdown")
+                threading.Thread(target=handle_hikma_timer, args=(chat_id, msg.message_id, new_score)).start()
+            else:
+                send_question(chat_id, new_score)
         else:
             bot.answer_callback_query(call.id, "❌ خطأ! حاول مجدداً", show_alert=True)
 
 # --- 7. أوامر المدير ---
+
 @bot.message_handler(commands=['admin'])
-def admin_panel(message):
+def admin(message):
     if message.from_user.id == ADMIN_ID:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("📊 الإحصائيات", "📢 إعلان عام")
-        bot.send_message(message.chat.id, "🛠 لوحة المدير:", reply_markup=markup)
+        markup.add("📊 الإحصائيات", "📢 إعلان")
+        bot.send_message(message.chat.id, "🛠 لوحة المدير", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: m.text == "📊 الإحصائيات" and m.from_user.id == ADMIN_ID)
 def stats(message):
-    with get_db_connection() as conn:
-        count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-    bot.send_message(ADMIN_ID, f"👥 المشتركين: {count}")
+    cursor = db.cursor()
+    cursor.execute('SELECT COUNT(*) FROM users')
+    count = cursor.fetchone()[0]
+    bot.send_message(ADMIN_ID, f"👥 عدد المشتركين: {count}")
 
-@bot.message_handler(func=lambda m: m.text == "📢 إعلان عام" and m.from_user.id == ADMIN_ID)
-def broadcast_prompt(message):
-    msg = bot.send_message(ADMIN_ID, "أرسل نص الإعلان:")
-    bot.register_next_step_handler(msg, do_broadcast)
+@bot.message_handler(func=lambda m: m.text == "📢 إعلان" and m.from_user.id == ADMIN_ID)
+def ask_broadcast(message):
+    msg = bot.send_message(ADMIN_ID, "📝 أرسل نص الإعلان الآن:")
+    bot.register_next_step_handler(msg, send_broadcast)
 
-def do_broadcast(message):
-    with get_db_connection() as conn:
-        users = conn.execute('SELECT id FROM users').fetchall()
-    for u in users:
-        try: bot.send_message(u[0], f"📢 إعلان:\n\n{message.text}")
+def send_broadcast(message):
+    cursor = db.cursor()
+    cursor.execute('SELECT id FROM users')
+    rows = cursor.fetchall()
+    count = 0
+    for row in rows:
+        try:
+            bot.send_message(row[0], f"📢 *تنبيه من الإدارة:*\n\n{message.text}", parse_mode="Markdown")
+            count += 1
+            time.sleep(0.1) # لمنع حظر البوت
         except: continue
-    bot.send_message(ADMIN_ID, "✅ تم الإرسال.")
+    bot.send_message(ADMIN_ID, f"✅ تم الإرسال إلى {count} مستخدم.")
 
-# --- 8. البداية ---
+# --- 8. التشغيل ---
+
 @bot.message_handler(commands=['start'])
 def start(message):
-    score = get_user_score(message.chat.id)
-    name = message.from_user.first_name
-    
-    if score == 0:
-        set_user_score(message.chat.id, name, 0)
-        prefix = "🕋 مرحباً بك في تحدي المهاجر!\n"
-        send_next_step(message.chat.id, 0, prefix=prefix)
-    else:
-        prefix = f"👋 أهلاً بك مجدداً يا {name}!\n"
-        send_next_step(message.chat.id, score, prefix=prefix)
+    cursor = db.cursor()
+    cursor.execute('INSERT OR IGNORE INTO users (id, name, score) VALUES (?, ?, ?)', (message.chat.id, message.from_user.first_name, 0))
+    db.commit()
+    cursor.execute('SELECT score FROM users WHERE id = ?', (message.chat.id,))
+    score = cursor.fetchone()[0]
+    send_question(message.chat.id, score, prefix=f"👋 أهلاً بك مجدداً {message.from_user.first_name}!")
 
 if __name__ == "__main__":
     keep_alive()
-    print("البوت انطلق بنجاح!")
-    bot.infinity_polling()
+    bot.infinity_polling(timeout=60)
+        
