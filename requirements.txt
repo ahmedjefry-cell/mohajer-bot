@@ -1,4 +1,4 @@
 pyTelegramBotAPI
-gTTS
+gTTS==2.5.1
 Flask
 gunicorn
