@@ -43,6 +43,137 @@ def get_user_data(user_id):
     cursor.execute('SELECT name, score, fails FROM users WHERE id = ?', (user_id,))
     return cursor.fetchone()
 
+# --- 4. بنك الأسئلة (رحلة المهاجر) ---
+questions_pool = [
+    {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
+    {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
+    {"q": "كم عدد أركان الإيمان؟ ✨", "options": ["5", "6", "7", "4"], "correct": "6"},
+    {"q": "ما هو أعلى مراتب الدين؟ 🌟", "options": ["الإسلام", "الإيمان", "الإحسان", "التقوى"], "correct": "الإحسان"},
+    {"q": "ماذا يقول المعتمر عند نية الدخول في الإحرام؟", "options": ["لبيك اللهم عمرة", "الله أكبر", "الحمد لله", "بسم الله"], "correct": "لبيك اللهم عمرة"},
+    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3 أشواط", "5 أشواط", "7 أشواط", "9 أشواط"], "correct": "7 أشواط"},
+    {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"},
+    # ... (يمكنك إضافة بقية الأسئلة هنا بنفس النمط لتصل لـ 1000 سؤال)
+]
+
+# --- 5. حكم ابن عطاء الله السكندري (مرتبة) ---
+hikam_list = [
+    "من علامة الاعتماد على العمل، نقصان الرجاء عند وجود الزلل.",
+    "إرادتك التجريد مع إقامة الله إياك في الأسباب من الشهوة الخفية.",
+    "سوابق الهمم لا تخرق أسوار الأقدار.",
+    "أرح نفسك من التدبير، فما قام به غيرك عنك لا تقم به لنفسك.",
+    "اجتهادك فيما ضمن لك، وتقصيرك فيما طلب منك، دليل على انطماس البصيرة منك.",
+    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك؛ فهو ضمن لك الإجابة فيما يختاره لك، لا فيما تختاره لنفسك.",
+    "لا يشككنك في الوعد عدم وقوع الموعود، وإن تعين زمنه، لئلا يكون ذلك قدحاً في بصيرتك وإخماداً لنور سريرتك.",
+    "إذا فتح لك وجهة من التعرف فلا تبال معها إن قل عملك؛ فإنه ما فتحها لك إلا وهو يريد أن يتعرف إليك.",
+    "تنوعت أجناس الأعمال لتنوع واردات الأحوال.",
+    "الأعمال صور قائمة، وأرواحها وجود سر الإخلاص فيها.",
+    "ادفن وجودك في أرض الخمول، فما نبت مما لم يدفن لا يتم نتاجه.",
+    "ما نفع القلب شيء مثل عزلة يدخل بها ميدان فكرة.",
+    "كيف يشرق قلب صور الأكوان منطبعة في مرآته؟ أم كيف يرحل إلى الله وهو مكبل بشهواته؟",
+    "الحق ليس بمحجوب، وإنما المحجوب أنت عن النظر إليه.",
+    "لا ترحل من كون إلى كون فتكون كحمار الرحى، يسير والمكان الذي ارتحل إليه هو الذي ارتحل منه.",
+    "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله.",
+    "ربما كنت مسيئاً فأراك الإحسان منك صحبتك لمن هو أسوأ حالاً منك.",
+    "ما قل عمل برز من قلب زاهد، ولا كثر عمل برز من قلب راغب.",
+    "حسن الأعمال نتائج حسن الأحوال، وحسن الأحوال من رسوخ مقامات الإنزال.",
+    "لا تترك الذكر لعدم حضورك مع الله فيه، لأن غفلتك عن وجود ذكره أشد من غفلتك في وجود ذكره."
+]
+
+def get_rank(score):
+    if score >= 1000: return "سفير وكالة المهاجر الذهبي 🏆"
+    return "متحدي المهاجر الصغير 👶"
+
+# --- 6. وظائف إرسال الأسئلة والحكم ---
+def send_actual_question(chat_id, score):
+    # شهادة الإنجاز
+    if score >= 1000:
+        name, _, _ = get_user_data(chat_id)
+        cert = (f"🎓 **شهادة إنجاز من وكالة المهاجر** 🎓\n\nنهنئ البطل: **{name}**\nأتممت 1000 سؤال بنجاح!\n🏆 **{get_rank(score)}**")
+        bot.send_message(chat_id, cert, parse_mode="Markdown")
+        return
+
+    # محطة الحكمة كل 20 سؤالاً
+    if score > 0 and score % 20 == 0:
+        h_index = (score // 20) - 1
+        h_text = hikam_list[h_index] if h_index < len(hikam_list) else random.choice(hikam_list)
+        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("فهمت الحكمة.. واصل الرحلة 🚀", callback_data="continue_game"))
+        bot.send_message(chat_id, f"💎 **من حكم ابن عطاء الله السكندري:**\n\n« {h_text} »", reply_markup=markup, parse_mode="Markdown")
+        return
+
+    # إرسال السؤال العادي
+    if score >= len(questions_pool):
+        bot.send_message(chat_id, "✅ أحسنت! انتظر تحديث الأسئلة قريباً.")
+        return
+
+    q_data = questions_pool[score]
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{q_data['correct']}") for opt in q_data['options']]
+    markup.add(*btns)
+    
+    msg = (f"❓ **السؤال رقم ({score + 1}):**\n\n"
+           f"*{q_data['q']}*\n\n"
+           f"🏅 **لقبك:** {get_rank(score)}")
+    bot.send_message(chat_id, msg, reply_markup=markup, parse_mode="Markdown")
+
+# --- 7. معالجة الردود ---
+@bot.callback_query_handler(func=lambda call: True)
+def handle_query(call):
+    chat_id = call.message.chat.id
+    user_data = get_user_data(chat_id)
+    if not user_data: return
+    name, score, fails = user_data
+    
+    # حل مشكلة المواصلة: نستخدم callback_data فريد
+    if call.data == "continue_game":
+        try: bot.delete_message(chat_id, call.message.message_id)
+        except: pass
+        # نرسل السؤال التالي مباشرة (score هنا هو نفسه رقم السؤال)
+        send_actual_question(chat_id, score)
+        
+    elif call.data.startswith("ans|"):
+        _, selected, correct = call.data.split("|", 2)
+        if selected == correct:
+            try: bot.send_audio(chat_id, SOUND_CORRECT)
+            except: pass
+            new_score = score + 1
+            update_user(chat_id, name, new_score, 0)
+            
+            try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
+            except: pass
+            
+            # صورة الشعار كل 20 سؤالاً (مع الحكمة)
+            if new_score > 0 and new_score % 20 == 0:
+                try:
+                    with open('IMG_٢٠٢٥٠٨٠٩_١١٠٤٥٤.jpg', 'rb') as photo:
+                        bot.send_photo(chat_id, photo, caption=f"🎊 مذهل! أكملت {new_score} خطوة!", 
+                                       reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("خذ حكمة المحطة 💎", callback_data="continue_game")))
+                except: send_actual_question(chat_id, new_score)
+            else:
+                send_actual_question(chat_id, new_score)
+        else:
+            try: bot.send_audio(chat_id, SOUND_WRONG)
+            except: pass
+            update_user(chat_id, name, score, fails + 1)
+            bot.answer_callback_query(call.id, "❌ خطأ! حاول مرة أخرى", show_alert=True)
+
+@bot.message_handler(commands=['start'])
+def start(message):
+    update_user(message.chat.id, message.from_user.first_name, 0, 0)
+    bot.send_message(message.chat.id, "🕋 **مرحباً بك في تحدي وكالة المهاجر!**\nرحلة مليئة بالأسئلة وحكم العارفين.. استعن بالله وابدأ!")
+    send_actual_question(message.chat.id, 0)
+
+if __name__ == "__main__":
+    keep_alive()
+    bot.infinity_polling()
+    cursor = db_conn.cursor()
+    cursor.execute('INSERT OR REPLACE INTO users (id, name, score, fails) VALUES (?, ?, ?, ?)', (user_id, name, score, fails))
+    db_conn.commit()
+
+def get_user_data(user_id):
+    cursor = db_conn.cursor()
+    cursor.execute('SELECT name, score, fails FROM users WHERE id = ?', (user_id,))
+    return cursor.fetchone()
+
 # --- 4. بنك الأسئلة (يمكنك إضافة حتى 1000 سؤال هنا بنفس التنسيق) ---
 questions_pool = [
     # [1-10] أركان الإسلام والإيمان
