@@ -6,375 +6,175 @@ from telebot import types
 from flask import Flask
 from threading import Thread
 
-# --- 1. إعدادات السيرفر لمنع النوم على Render ---
+# --- 1. إعداد السيرفر لمنع النوم (Render) ---
 app = Flask('')
 @app.route('/')
-def home(): return "البوت يعمل بنجاح!"
+def home(): return "البوت يعمل بكفاءة قصوى! 🚀"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
-# --- 2. إعدادات البوت والتوكن ---
+# --- 2. الإعدادات الأساسية ---
 TOKEN = '8612878316:AAFmiUcKAUl0mO_pcmmSb_TD4xZ2aS18atM'
-bot = telebot.TeleBot(TOKEN)
 ADMIN_ID = 1833628326 
-FINAL_SECRET_CODE = "MOHAJER-VIP-2026"
+bot = telebot.TeleBot(TOKEN)
 
-SOUND_CORRECT = "https://www.myinstants.com/media/sounds/correct.mp3"
-SOUND_WRONG = "https://www.myinstants.com/media/sounds/wrong.mp3"
-
-# --- 3. قاعدة البيانات ---
-def init_db():
-    conn = sqlite3.connect('users_data.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS users 
-                      (id INTEGER PRIMARY KEY, name TEXT, score INTEGER, fails INTEGER DEFAULT 0)''')
-    conn.commit()
+# --- 3. إدارة قاعدة البيانات ---
+def get_db_connection():
+    conn = sqlite3.connect('almuhajir.db', check_same_thread=False)
     return conn
 
-db_conn = init_db()
+def init_db():
+    with get_db_connection() as conn:
+        conn.execute('CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, score INTEGER DEFAULT 0)')
+        conn.commit()
 
-def update_user(user_id, name, score, fails=0):
-    cursor = db_conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, score, fails) VALUES (?, ?, ?, ?)', (user_id, name, score, fails))
-    db_conn.commit()
+init_db()
 
-def get_user_data(user_id):
-    cursor = db_conn.cursor()
-    cursor.execute('SELECT name, score, fails FROM users WHERE id = ?', (user_id,))
-    return cursor.fetchone()
+def set_user_score(user_id, name, score):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('INSERT OR REPLACE INTO users (id, name, score) VALUES (?, ?, ?)', (user_id, name, score))
+        conn.commit()
 
-# --- 4. بنك الأسئلة (رحلة المهاجر) ---
+def get_user_score(user_id):
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT score FROM users WHERE id = ?', (user_id,))
+        res = cursor.fetchone()
+        return res[0] if res else 0
+
+# --- 4. محتوى البوت (الأسئلة والحكم) ---
+# ملاحظة: يمكنك إضافة حتى 1000 سؤال في هذه القائمة
 questions_pool = [
     {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
     {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
     {"q": "كم عدد أركان الإيمان؟ ✨", "options": ["5", "6", "7", "4"], "correct": "6"},
     {"q": "ما هو أعلى مراتب الدين؟ 🌟", "options": ["الإسلام", "الإيمان", "الإحسان", "التقوى"], "correct": "الإحسان"},
-    {"q": "ماذا يقول المعتمر عند نية الدخول في الإحرام؟", "options": ["لبيك اللهم عمرة", "الله أكبر", "الحمد لله", "بسم الله"], "correct": "لبيك اللهم عمرة"},
-    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3 أشواط", "5 أشواط", "7 أشواط", "9 أشواط"], "correct": "7 أشواط"},
+    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3", "5", "7", "9"], "correct": "7"},
     {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"},
-    # ... (يمكنك إضافة بقية الأسئلة هنا بنفس النمط لتصل لـ 1000 سؤال)
+    {"q": "من هو النبي الذي بنى الكعبة مع ابنه إسماعيل؟", "options": ["إبراهيم عليه السلام", "نوح عليه السلام", "موسى عليه السلام", "عيسى عليه السلام"], "correct": "إبراهيم عليه السلام"},
+    # أضف هنا بقية الـ 1000 سؤال بنفس التنسيق...
 ]
 
-# --- 5. حكم ابن عطاء الله السكندري (مرتبة) ---
 hikam_list = [
     "من علامة الاعتماد على العمل، نقصان الرجاء عند وجود الزلل.",
-    "إرادتك التجريد مع إقامة الله إياك في الأسباب من الشهوة الخفية.",
-    "سوابق الهمم لا تخرق أسوار الأقدار.",
     "أرح نفسك من التدبير، فما قام به غيرك عنك لا تقم به لنفسك.",
     "اجتهادك فيما ضمن لك، وتقصيرك فيما طلب منك، دليل على انطماس البصيرة منك.",
-    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك؛ فهو ضمن لك الإجابة فيما يختاره لك، لا فيما تختاره لنفسك.",
-    "لا يشككنك في الوعد عدم وقوع الموعود، وإن تعين زمنه، لئلا يكون ذلك قدحاً في بصيرتك وإخماداً لنور سريرتك.",
-    "إذا فتح لك وجهة من التعرف فلا تبال معها إن قل عملك؛ فإنه ما فتحها لك إلا وهو يريد أن يتعرف إليك.",
-    "تنوعت أجناس الأعمال لتنوع واردات الأحوال.",
-    "الأعمال صور قائمة، وأرواحها وجود سر الإخلاص فيها.",
-    "ادفن وجودك في أرض الخمول، فما نبت مما لم يدفن لا يتم نتاجه.",
-    "ما نفع القلب شيء مثل عزلة يدخل بها ميدان فكرة.",
-    "كيف يشرق قلب صور الأكوان منطبعة في مرآته؟ أم كيف يرحل إلى الله وهو مكبل بشهواته؟",
-    "الحق ليس بمحجوب، وإنما المحجوب أنت عن النظر إليه.",
-    "لا ترحل من كون إلى كون فتكون كحمار الرحى، يسير والمكان الذي ارتحل إليه هو الذي ارتحل منه.",
+    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك.",
     "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله.",
     "ربما كنت مسيئاً فأراك الإحسان منك صحبتك لمن هو أسوأ حالاً منك.",
-    "ما قل عمل برز من قلب زاهد، ولا كثر عمل برز من قلب راغب.",
-    "حسن الأعمال نتائج حسن الأحوال، وحسن الأحوال من رسوخ مقامات الإنزال.",
-    "لا تترك الذكر لعدم حضورك مع الله فيه، لأن غفلتك عن وجود ذكره أشد من غفلتك في وجود ذكره."
+    "ما قل عمل برز من قلب زاهد، ولا كثر عمل برز من قلب راغب."
 ]
 
-def get_rank(score):
-    if score >= 1000: return "سفير وكالة المهاجر الذهبي 🏆"
-    return "متحدي المهاجر الصغير 👶"
+# --- 5. منطق اللعب الرئيسي ---
+def send_next_step(chat_id, score):
+    try:
+        # حالة إنهاء الـ 1000 سؤال
+        if score >= 1000:
+            bot.send_message(chat_id, "🏆 **تهانينا يا بطل!**\nلقد أتممت رحلة الـ 1000 سؤال بنجاح وأصبحت سفير وكالة المهاجر الذهبي!")
+            return
 
-# --- 6. وظائف إرسال الأسئلة والحكم ---
-def send_actual_question(chat_id, score):
-    # شهادة الإنجاز
-    if score >= 1000:
-        name, _, _ = get_user_data(chat_id)
-        cert = (f"🎓 **شهادة إنجاز من وكالة المهاجر** 🎓\n\nنهنئ البطل: **{name}**\nأتممت 1000 سؤال بنجاح!\n🏆 **{get_rank(score)}**")
-        bot.send_message(chat_id, cert, parse_mode="Markdown")
-        return
+        # نظام الاستراحة والحكم (كل 20 سؤال)
+        if score > 0 and score % 20 == 0:
+            h = random.choice(hikam_list)
+            markup = types.InlineKeyboardMarkup()
+            markup.add(types.InlineKeyboardButton("فهمت الحكمة.. واصل الرحلة 🚀", callback_data="next_q"))
+            bot.send_message(chat_id, f"💎 **استراحة محارب (حكمة المهاجر):**\n\n« {h} »", reply_markup=markup, parse_mode="Markdown")
+            return
 
-    # محطة الحكمة كل 20 سؤالاً
-    if score > 0 and score % 20 == 0:
-        h_index = (score // 20) - 1
-        h_text = hikam_list[h_index] if h_index < len(hikam_list) else random.choice(hikam_list)
-        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("فهمت الحكمة.. واصل الرحلة 🚀", callback_data="continue_game"))
-        bot.send_message(chat_id, f"💎 **من حكم ابن عطاء الله السكندري:**\n\n« {h_text} »", reply_markup=markup, parse_mode="Markdown")
-        return
+        # جلب السؤال التالي
+        q_idx = score % len(questions_pool) # يضمن الدوران إذا كانت الأسئلة أقل من 1000
+        q_data = questions_pool[q_idx]
+        
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}") for opt in q_data['options']]
+        markup.add(*btns)
+        
+        bot.send_message(chat_id, f"❓ *السؤال {score + 1}:*\n\n{q_data['q']}", reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        print(f"Error in send_next_step: {e}")
 
-    # إرسال السؤال العادي
-    if score >= len(questions_pool):
-        bot.send_message(chat_id, "✅ أحسنت! انتظر تحديث الأسئلة قريباً.")
-        return
-
-    q_data = questions_pool[score]
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{q_data['correct']}") for opt in q_data['options']]
-    markup.add(*btns)
-    
-    msg = (f"❓ **السؤال رقم ({score + 1}):**\n\n"
-           f"*{q_data['q']}*\n\n"
-           f"🏅 **لقبك:** {get_rank(score)}")
-    bot.send_message(chat_id, msg, reply_markup=markup, parse_mode="Markdown")
-
-# --- 7. معالجة الردود ---
+# --- 6. معالجة الأزرار (Callback Queries) ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     chat_id = call.message.chat.id
-    user_data = get_user_data(chat_id)
-    if not user_data: return
-    name, score, fails = user_data
+    score = get_user_score(chat_id)
     
-    # حل مشكلة المواصلة: نستخدم callback_data فريد
-    if call.data == "continue_game":
+    if call.data == "next_q":
         try: bot.delete_message(chat_id, call.message.message_id)
         except: pass
-        # نرسل السؤال التالي مباشرة (score هنا هو نفسه رقم السؤال)
-        send_actual_question(chat_id, score)
-        
+        send_next_step(chat_id, score)
+
     elif call.data.startswith("ans|"):
-        _, selected, correct = call.data.split("|", 2)
+        selected = call.data.split("|")[1]
+        q_idx = score % len(questions_pool)
+        correct = questions_pool[q_idx]['correct']
+        
         if selected == correct:
-            try: bot.send_audio(chat_id, SOUND_CORRECT)
-            except: pass
+            bot.answer_callback_query(call.id, "✅ إجابة صحيحة!")
             new_score = score + 1
-            update_user(chat_id, name, new_score, 0)
-            
+            set_user_score(chat_id, call.from_user.first_name, new_score)
             try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
             except: pass
-            
-            # صورة الشعار كل 20 سؤالاً (مع الحكمة)
-            if new_score > 0 and new_score % 20 == 0:
-                try:
-                    with open('IMG_٢٠٢٥٠٨٠٩_١١٠٤٥٤.jpg', 'rb') as photo:
-                        bot.send_photo(chat_id, photo, caption=f"🎊 مذهل! أكملت {new_score} خطوة!", 
-                                       reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("خذ حكمة المحطة 💎", callback_data="continue_game")))
-                except: send_actual_question(chat_id, new_score)
-            else:
-                send_actual_question(chat_id, new_score)
+            send_next_step(chat_id, new_score)
         else:
-            try: bot.send_audio(chat_id, SOUND_WRONG)
-            except: pass
-            update_user(chat_id, name, score, fails + 1)
-            bot.answer_callback_query(call.id, "❌ خطأ! حاول مرة أخرى", show_alert=True)
+            bot.answer_callback_query(call.id, "❌ خطأ! حاول مجدداً 🔄", show_alert=True)
 
+# --- 7. أوامر المدير (Admin Panel) ---
+@bot.message_handler(commands=['admin'])
+def admin_panel(message):
+    if message.from_user.id == ADMIN_ID:
+        markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        markup.add("📊 إحصائيات البوت", "📢 إرسال إعلان")
+        markup.add("🔄 تصفير نقاطي")
+        bot.send_message(message.chat.id, "🛠 **لوحة تحكم المدير:**", reply_markup=markup, parse_mode="Markdown")
+    else:
+        bot.send_message(message.chat.id, "❌ هذا الأمر مخصص للإدارة فقط.")
+
+@bot.message_handler(func=lambda m: m.text == "📊 إحصائيات البوت" and m.from_user.id == ADMIN_ID)
+def admin_stats(message):
+    with get_db_connection() as conn:
+        count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+        top = conn.execute('SELECT MAX(score) FROM users').fetchone()[0]
+    bot.send_message(message.chat.id, f"📈 **الإحصائيات:**\n\n👥 عدد المشتركين: {count}\n🏆 أعلى نتيجة: {top}")
+
+@bot.message_handler(func=lambda m: m.text == "📢 إرسال إعلان" and m.from_user.id == ADMIN_ID)
+def admin_broadcast(message):
+    msg = bot.send_message(message.chat.id, "📝 أرسل نص الإعلان الآن:")
+    bot.register_next_step_handler(msg, start_broadcasting)
+
+def start_broadcasting(message):
+    with get_db_connection() as conn:
+        users = conn.execute('SELECT id FROM users').fetchall()
+    
+    success = 0
+    for u in users:
+        try:
+            bot.send_message(u[0], f"📢 **تنبيه من إدارة المهاجر:**\n\n{message.text}")
+            success += 1
+        except: continue
+    bot.send_message(ADMIN_ID, f"✅ تم الإرسال بنجاح إلى {success} مستخدم.")
+
+@bot.message_handler(func=lambda m: m.text == "🔄 تصفير نقاطي" and m.from_user.id == ADMIN_ID)
+def reset_self(message):
+    set_user_score(ADMIN_ID, message.from_user.first_name, 0)
+    bot.send_message(ADMIN_ID, "✅ تم تصفير نقاطك بنجاح للبدء من جديد.")
+
+# --- 8. الأوامر العامة ---
 @bot.message_handler(commands=['start'])
 def start(message):
-    update_user(message.chat.id, message.from_user.first_name, 0, 0)
-    bot.send_message(message.chat.id, "🕋 **مرحباً بك في تحدي وكالة المهاجر!**\nرحلة مليئة بالأسئلة وحكم العارفين.. استعن بالله وابدأ!")
-    send_actual_question(message.chat.id, 0)
+    # لا نصفر النقاط إذا كان المستخدم مسجلاً مسبقاً ليكمل من حيث وقف
+    score = get_user_score(message.chat.id)
+    if score == 0:
+        set_user_score(message.chat.id, message.from_user.first_name, 0)
+        bot.send_message(message.chat.id, "🕋 **مرحباً بك في تحدي وكالة المهاجر!**\n\nرحلة الـ 1000 سؤال تبدأ الآن.. استعن بالله.")
+    else:
+        bot.send_message(message.chat.id, f"👋 أهلاً بك مجدداً! أنت الآن في السؤال رقم {score + 1}")
+    
+    send_next_step(message.chat.id, score)
 
+# --- 9. التشغيل النهائي ---
 if __name__ == "__main__":
     keep_alive()
-    bot.infinity_polling()
-    cursor = db_conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, score, fails) VALUES (?, ?, ?, ?)', (user_id, name, score, fails))
-    db_conn.commit()
-
-def get_user_data(user_id):
-    cursor = db_conn.cursor()
-    cursor.execute('SELECT name, score, fails FROM users WHERE id = ?', (user_id,))
-    return cursor.fetchone()
-
-# --- 4. بنك الأسئلة (يمكنك إضافة حتى 1000 سؤال هنا بنفس التنسيق) ---
-questions_pool = [
-    # [1-10] أركان الإسلام والإيمان
-    {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
-    {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
-    {"q": "كم عدد أركان الإيمان؟ ✨", "options": ["5", "6", "7", "4"], "correct": "6"},
-    {"q": "ما هو أعلى مراتب الدين؟ 🌟", "options": ["الإسلام", "الإيمان", "الإحسان", "التقوى"], "correct": "الإحسان"},
-    {"q": "الإيمان بالملائكة هو الركن الـ... من أركان الإيمان؟", "options": ["الأول", "الثاني", "الثالث", "الرابع"], "correct": "الثاني"},
-    {"q": "ما اسم الكتاب الذي أنزل على سيدنا محمد ﷺ؟ 📖", "options": ["التوراة", "الإنجيل", "القرآن الكريم", "الزبور"], "correct": "القرآن الكريم"},
-    {"q": "كم عدد صلوات الفريضة في اليوم؟ 🕌", "options": ["3", "4", "5", "6"], "correct": "5"},
-    {"q": "في أي شهر يصوم المسلمون؟ 🌙", "options": ["شوال", "رجب", "رمضان", "شعبان"], "correct": "رمضان"},
-    {"q": "أين توجد الكعبة المشرفة؟ 🕋", "options": ["المدينة المنورة", "مكة المكرمة", "القدس", "اليمن"], "correct": "مكة المكرمة"},
-    {"q": "من هو خاتم الأنبياء والمرسلين؟ ✨", "options": ["عيسى", "موسى", "محمد ﷺ", "نوح"], "correct": "محمد ﷺ"},
-
-    # [11-20] رحلة العمرة (تعليمي)
-    {"q": "نحن الآن في الميقات ونريد العمرة، ماذا يلبس الرجل؟ ⚪", "options": ["ثوب أبيض", "ملابس الإحرام", "بدلة", "قميص"], "correct": "ملابس الإحرام"},
-    {"q": "ماذا يقول المعتمر عند نية الدخول في الإحرام؟", "options": ["لبيك اللهم عمرة", "الله أكبر", "الحمد لله", "بسم الله"], "correct": "لبيك اللهم عمرة"},
-    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3 أشواط", "5 أشواط", "7 أشواط", "9 أشواط"], "correct": "7 أشواط"},
-    {"q": "بأي قدم ندخل المسجد الحرام؟ 🦶", "options": ["اليسرى", "اليمنى", "الاثنتان", "لا يهم"], "correct": "اليمنى"},
-    {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"},
-    {"q": "أين نسعى بعد الطواف؟ 🏃‍♂️", "options": ["بين الصفا والمروة", "في منى", "في عرفات", "في مزدلفة"], "correct": "بين الصفا والمروة"},
-    {"q": "ماذا يفعل الرجل بشعره بعد انتهاء العمرة؟ ✂️", "options": ["يغسله", "يقصه أو يحلقه", "يصبغه", "لا شيء"], "correct": "يقصه أو يحلقه"},
-    {"q": "ماذا نقول عند رؤية الكعبة لأول مرة؟", "options": ["سبحان الله", "اللهم زد هذا البيت تشريفاً", "الحمد لله", "الله أكبر"], "correct": "اللهم زد هذا البيت تشريفاً"},
-    {"q": "ما هو الحجر الذي نبدأ منه الطواف؟ ⚫", "options": ["حجر إسماعيل", "الحجر الأسود", "حجر المقام", "حجر الصفا"], "correct": "الحجر الأسود"},
-    {"q": "أين يقع مقام إبراهيم عليه السلام؟", "options": ["في المدينة", "بجوار الكعبة", "في القدس", "في مصر"], "correct": "بجوار الكعبة"},
-
-    # [21-40] أذكار وأخلاق
-    {"q": "ماذا نقول عند البدء في الأكل؟ 🍽️", "options": ["الحمد لله", "بسم الله", "الله أكبر", "أستغفر الله"], "correct": "بسم الله"},
-    {"q": "ماذا نقول بعد الانتهاء من الأكل؟", "options": ["بسم الله", "الحمد لله", "سبحان الله", "ما شاء الله"], "correct": "الحمد لله"},
-    {"q": "ماذا نقول عند دخول المنزل؟ 🏠", "options": ["بسم الله ولجنا", "غفرانك", "أستغفر الله", "الحمد لله"], "correct": "بسم الله ولجنا"},
-    {"q": "ماذا نقول عند الخروج من المنزل؟", "options": ["باسم الله توكلت على الله", "سبحان الله", "الله أكبر", "الحمد لله"], "correct": "باسم الله توكلت على الله"},
-    {"q": "ماذا نقول عند دخول الخلاء (الحمام)؟", "options": ["اللهم إني أعوذ بك من الخبث والخبائث", "غفرانك", "بسم الله خرجنا", "الحمد لله"], "correct": "اللهم إني أعوذ بك من الخبث والخبائث"},
-    {"q": "ماذا نقول عند الخروج من الخلاء؟", "options": ["الحمد لله", "بسم الله", "غفرانك", "سبحان الله"], "correct": "غفرانك"},
-    {"q": "ماذا نقول لمن صنع لنا معروفاً؟ ✨", "options": ["شكراً", "جزاك الله خيراً", "أهلاً", "ممتاز"], "correct": "جزاك الله خيراً"},
-    {"q": "ماذا نقول عند الغضب؟", "options": ["أعوذ بالله من الشيطان الرجيم", "سبحان الله", "الحمد لله", "لا إله إلا الله"], "correct": "أعوذ بالله من الشيطان الرجيم"},
-    {"q": "ما هي أعظم آية في القرآن الكريم؟", "options": ["آية الكرسي", "آية الدين", "آخر سورة البقرة", "الفاتحة"], "correct": "آية الكرسي"},
-    {"q": "ما هي السورة التي تعدل ثلث القرآن؟", "options": ["الفاتحة", "الإخلاص", "الناس", "الكوثر"], "correct": "الإخلاص"},
-    
-    # يمكنك تكرار النمط لإضافة 1000 سؤال...
-]
-
-# فواصل إيمانية كل 10 أسئلة
-spiritual_breaks = [
-    "💡 **استراحة إيمانية:** قال رسول الله ﷺ: 'تبسمك في وجه أخيك لك صدقة'. 😊",
-    "💡 **استراحة إيمانية:** الصلاة في المسجد الحرام تعادل 100,000 صلاة! 🕋",
-    "💡 **استراحة إيمانية:** كلمة 'سبحان الله وبحمده' تغرس لك نخلة في الجنة. 🌴"
-]
-
-def get_rank(score):
-    if score >= 1000: return "سفير وكالة المهاجر الذهبي 🏆"
-    if score >= 500: return "رحالة المهاجر الذكي 🧭"
-    if score >= 100: return "بطل المهاجر المبدع 🌟"
-    return "متحدي المهاجر الصغير 👶"
-
-# --- 5. وظائف إرسال الأسئلة والشهادات ---
-def send_actual_question(chat_id, score):
-    if score >= 1000:
-        name, _, _ = get_user_data(chat_id)
-        cert = (f"🎓 **شهادة إنجاز من وكالة المهاجر** 🎓\n\n"
-                f"نهنئ البطل: **{name}**\n"
-                f"لقد أتممت 1000 سؤال بنجاح وحصلت على لقب:\n"
-                f"🏆 **{get_rank(score)}** 🏆\n\n"
-                f"كود الجائزة: `{FINAL_SECRET_CODE}`")
-        bot.send_message(chat_id, cert, parse_mode="Markdown")
-        return
-
-    if score > 0 and score % 10 == 0:
-        tip = random.choice(spiritual_breaks)
-        markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("واصل الرحلة 🚀", callback_data="continue"))
-        bot.send_message(chat_id, tip, reply_markup=markup, parse_mode="Markdown")
-        return
-
-    if score >= len(questions_pool):
-        bot.send_message(chat_id, "✅ أحسنت! انتهت المرحلة الحالية، انتظرنا قريباً لزيادة الأسئلة!")
-        return
-
-    q_data = questions_pool[score]
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{q_data['correct']}") for opt in q_data['options']]
-    markup.add(*btns)
-    
-    msg = (f"❓ **السؤال رقم ({score + 1}):**\n\n"
-           f"**{q_data['q']}**\n\n"
-           f"🏅 **لقبك:** {get_rank(score)}")
-    bot.send_message(chat_id, msg, reply_markup=markup, parse_mode="Markdown")
-
-# --- 6. معالجة الردود ---
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    chat_id = call.message.chat.id
-    user_data = get_user_data(chat_id)
-    if not user_data: return
-    name, score, fails = user_data
-    
-    if call.data == "continue":
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
-        send_actual_question(chat_id, score)
-        
-    elif call.data.startswith("ans|"):
-        _, selected, correct = call.data.split("|", 2)
-        if selected == correct:
-            try: bot.send_audio(chat_id, SOUND_CORRECT)
-            except: pass
-            new_score = score + 1
-            update_user(chat_id, name, new_score, 0)
-            
-            try: bot.edit_message_reply_markup(chat_id, call.message.message_id, reply_markup=None)
-            except: pass
-            
-            if new_score > 0 and new_score % 20 == 0:
-                try:
-                    with open('IMG_٢٠٢٥٠٨٠٩_١١٠٤٥٤.jpg', 'rb') as photo:
-                        bot.send_photo(chat_id, photo, caption=f"🎊 مبارك! أكملت {new_score} سؤالاً يا بطل المهاجر!", 
-                                       reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("السؤال التالي 🚀", callback_data="continue")))
-                except: send_actual_question(chat_id, new_score)
-            else:
-                send_actual_question(chat_id, new_score)
-        else:
-            try: bot.send_audio(chat_id, SOUND_WRONG)
-            except: pass
-            new_fails = fails + 1
-            update_user(chat_id, name, score, new_fails)
-            if new_fails >= 3:
-                bot.send_message(chat_id, "🛡️ **درع الأبطال:** لا تحزن! العلم محاولة وخطأ، تنفس بعمق وحاول مجدداً!")
-                update_user(chat_id, name, score, 0)
-            else:
-                bot.answer_callback_query(call.id, "❌ خطأ! حاول مرة أخرى", show_alert=True)
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    update_user(message.chat.id, message.from_user.first_name, 0, 0)
-    bot.send_message(message.chat.id, "🕋 **مرحباً بك في تحدي أبطال وكالة المهاجر!**\nرحلتنا التعليمية تبدأ الآن.. هل أنت مستعد؟", parse_mode="Markdown")
-    send_actual_question(message.chat.id, 0)
-
-if __name__ == "__main__":
-    keep_alive()
-    bot.infinity_polling()
-    cursor = db_conn.cursor()
-    cursor.execute('INSERT OR REPLACE INTO users (id, name, score, fails) VALUES (?, ?, ?, ?)', (user_id, name, score, fails))
-    db_conn.commit()
-
-def get_user_data(user_id):
-    cursor = db_conn.cursor()
-    cursor.execute('SELECT name, score, fails FROM users WHERE id = ?', (user_id,))
-    return cursor.fetchone()
-
-# --- بنك الأسئلة (رحلة المهاجر) ---
-questions_pool = [
-    {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
-    {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
-    {"q": "ماذا يقول المعتمر عند نية الدخول في الإحرام؟", "options": ["لبيك اللهم عمرة", "الله أكبر", "الحمد لله", "بسم الله"], "correct": "لبيك اللهم عمرة"},
-    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3 أشواط", "5 أشواط", "7 أشواط", "9 أشواط"], "correct": "7 أشواط"},
-    {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"}
-]
-
-spiritual_breaks = ["قال رسول الله ﷺ: 'أحب الكلام إلى الله أربع: سبحان الله، والحمد لله، ولا إله إلا الله، والله أكبر'. ✨"]
-
-def get_rank(score):
-    if score >= 1000: return "سفير وكالة المهاجر الذهبي 🏆"
-    return "متحدي المهاجر الصغير 👶"
-
-def send_actual_question(chat_id, score):
-    if score >= len(questions_pool):
-        bot.send_message(chat_id, "أحسنت! انتظر إضافة المراحل القادمة قريباً!")
-        return
-    q_data = questions_pool[score]
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{q_data['correct']}") for opt in q_data['options']]
-    markup.add(*btns)
-    bot.send_message(chat_id, f"السؤال ({score + 1}):\n\n*{q_data['q']}*", reply_markup=markup, parse_mode="Markdown")
-
-@bot.callback_query_handler(func=lambda call: True)
-def handle_query(call):
-    chat_id = call.message.chat.id
-    user_data = get_user_data(chat_id)
-    if not user_data: return
-    name, score, fails = user_data
-    if call.data == "continue":
-        send_actual_question(chat_id, score)
-    elif call.data.startswith("ans|"):
-        _, selected, correct = call.data.split("|", 2)
-        if selected == correct:
-            new_score = score + 1
-            update_user(chat_id, name, new_score, 0)
-            if new_score % 20 == 0:
-                try:
-                    with open('IMG_٢٠٢٥٠٨٠٩_١١٠٤٥٤.jpg', 'rb') as photo:
-                        bot.send_photo(chat_id, photo, caption=f"🎊 مذهل! أكملت {new_score} سؤالاً!", reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("التالي 🚀", callback_data="continue")))
-                except: send_actual_question(chat_id, new_score)
-            else: send_actual_question(chat_id, new_score)
-        else:
-            bot.answer_callback_query(call.id, "❌ خطأ! حاول مرة أخرى", show_alert=True)
-
-@bot.message_handler(commands=['start'])
-def start(message):
-    update_user(message.chat.id, message.from_user.first_name, 0, 0)
-    bot.send_message(message.chat.id, "🕋 مرحباً بك في تحدي 'أبطال المهاجر'!")
-    send_actual_question(message.chat.id, 0)
-
-if __name__ == "__main__":
-    keep_alive()
-    bot.infinity_polling()
-  
+    print("البوت يعمل الآن بأقصى سرعة...")
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
