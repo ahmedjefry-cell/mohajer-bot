@@ -7,11 +7,12 @@ import time
 from telebot import types
 from flask import Flask
 from threading import Thread
+from gtts import gTTS # المكتبة المسؤولة عن الصوت
 
 # --- 1. إعداد السيرفر ---
 app = Flask('')
 @app.route('/')
-def home(): return "البوت يعمل بنجاح! 🚀"
+def home(): return "البوت يعمل بالصوت والنص! 🎙️"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
@@ -29,7 +30,7 @@ def get_db():
 
 db = get_db()
 
-# --- 4. محتوى الأسئلة والحكم ---
+# --- 4. المحتوى ---
 questions_pool = [
     {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
     {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
@@ -48,7 +49,7 @@ hikam_list = [
     "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
 ]
 
-# --- 5. منطق اللعب ---
+# --- 5. منطق الصوت والحذف ---
 
 def send_question(chat_id, score, prefix=""):
     try:
@@ -60,17 +61,40 @@ def send_question(chat_id, score, prefix=""):
         bot.send_message(chat_id, f"{prefix}\n❓ *السؤال {score + 1}:*\n\n{q_data['q']}", reply_markup=markup, parse_mode="Markdown")
     except Exception as e: print(f"Err Q: {e}")
 
-def handle_hikma_timer(chat_id, msg_id, score):
-    time.sleep(7)
+def voice_hikma_logic(chat_id, text, score):
+    """تحويل النص لصوت، إرساله، ثم الحذف بعد 10 ثواني"""
     try:
-        bot.delete_message(chat_id, msg_id)
-    except: pass
-    send_question(chat_id, score)
+        # 1. توليد الملف الصوتي
+        tts = gTTS(text=text, lang='ar')
+        filename = f"hikma_{chat_id}.mp3"
+        tts.save(filename)
 
-# --- 6. معالجة الرسائل والأزرار ---
+        # 2. إرسال النص والصوت
+        msg_text = bot.send_message(chat_id, f"💎 **استمع للحكمة..**\n\n« {text} »", parse_mode="Markdown")
+        with open(filename, 'rb') as audio:
+            msg_voice = bot.send_voice(chat_id, audio)
+
+        # 3. الانتظار (زدنا الوقت قليلاً ليتمكن من سماع الصوت كاملاً)
+        time.sleep(10)
+
+        # 4. الحذف
+        try:
+            bot.delete_message(chat_id, msg_text.message_id)
+            bot.delete_message(chat_id, msg_voice.message_id)
+            if os.path.exists(filename): os.remove(filename) # حذف الملف من السيرفر لتوفير المساحة
+        except: pass
+
+        # 5. السؤال التالي
+        send_question(chat_id, score)
+
+    except Exception as e:
+        print(f"Voice Error: {e}")
+        send_question(chat_id, score) # في حال فشل الصوت، لا يتوقف البوت بل يرسل السؤال
+
+# --- 6. معالجة التفاعلات ---
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
+def handle_callbacks(call):
     chat_id = call.message.chat.id
     cursor = db.cursor()
     cursor.execute('SELECT score FROM users WHERE id = ?', (chat_id,))
@@ -92,8 +116,8 @@ def callback_handler(call):
 
             if new_score > 0 and new_score % 20 == 0:
                 h = random.choice(hikam_list)
-                msg = bot.send_message(chat_id, f"💎 *حكمة المحطة ({new_score}):*\n\n« {h} »\n\n_(تنتقل للسؤال تلقائياً بعد 7 ثوانٍ)_", parse_mode="Markdown")
-                threading.Thread(target=handle_hikma_timer, args=(chat_id, msg.message_id, new_score)).start()
+                # تشغيل الصوت والنص في Thread منفصل لعدم تعطيل البوت
+                threading.Thread(target=voice_hikma_logic, args=(chat_id, h, new_score)).start()
             else:
                 send_question(chat_id, new_score)
         else:
@@ -105,35 +129,35 @@ def callback_handler(call):
 def admin(message):
     if message.from_user.id == ADMIN_ID:
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add("📊 الإحصائيات", "📢 إعلان")
+        markup.add("📊 إحصائيات مفصلة", "📢 إعلان")
         bot.send_message(message.chat.id, "🛠 لوحة المدير", reply_markup=markup)
 
-@bot.message_handler(func=lambda m: m.text == "📊 الإحصائيات" and m.from_user.id == ADMIN_ID)
+@bot.message_handler(func=lambda m: m.text == "📊 إحصائيات مفصلة" and m.from_user.id == ADMIN_ID)
 def stats(message):
     cursor = db.cursor()
     cursor.execute('SELECT COUNT(*) FROM users')
-    count = cursor.fetchone()[0]
-    bot.send_message(ADMIN_ID, f"👥 عدد المشتركين: {count}")
+    total = cursor.fetchone()[0]
+    cursor.execute('SELECT name, score FROM users ORDER BY score DESC LIMIT 10')
+    rows = cursor.fetchall()
+    report = f"👥 الإجمالي: {total}\n\n"
+    for r in rows: report += f"👤 {r[0]}: السؤال {r[1]}\n"
+    bot.send_message(ADMIN_ID, report)
 
 @bot.message_handler(func=lambda m: m.text == "📢 إعلان" and m.from_user.id == ADMIN_ID)
-def ask_broadcast(message):
-    msg = bot.send_message(ADMIN_ID, "📝 أرسل نص الإعلان الآن:")
-    bot.register_next_step_handler(msg, send_broadcast)
+def broadcast(message):
+    msg = bot.send_message(ADMIN_ID, "أرسل نص الإعلان:")
+    bot.register_next_step_handler(msg, do_broadcast)
 
-def send_broadcast(message):
+def do_broadcast(message):
     cursor = db.cursor()
     cursor.execute('SELECT id FROM users')
-    rows = cursor.fetchall()
-    count = 0
-    for row in rows:
-        try:
-            bot.send_message(row[0], f"📢 *تنبيه من الإدارة:*\n\n{message.text}", parse_mode="Markdown")
-            count += 1
-            time.sleep(0.1) # لمنع حظر البوت
+    users = cursor.fetchall()
+    for u in users:
+        try: bot.send_message(u[0], f"📢 إعلان:\n\n{message.text}")
         except: continue
-    bot.send_message(ADMIN_ID, f"✅ تم الإرسال إلى {count} مستخدم.")
+    bot.send_message(ADMIN_ID, "✅ تم الإرسال.")
 
-# --- 8. التشغيل ---
+# --- 8. البداية ---
 
 @bot.message_handler(commands=['start'])
 def start(message):
@@ -142,9 +166,8 @@ def start(message):
     db.commit()
     cursor.execute('SELECT score FROM users WHERE id = ?', (message.chat.id,))
     score = cursor.fetchone()[0]
-    send_question(message.chat.id, score, prefix=f"👋 أهلاً بك مجدداً {message.from_user.first_name}!")
+    send_question(message.chat.id, score, prefix="👋 أهلاً بك في تحدي المهاجر!")
 
 if __name__ == "__main__":
     keep_alive()
-    bot.infinity_polling(timeout=60)
-        
+    bot.infinity_polling()
