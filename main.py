@@ -2,14 +2,15 @@ import telebot
 import os
 import sqlite3
 import random
+import threading
 from telebot import types
 from flask import Flask
 from threading import Thread
 
-# --- 1. إعداد السيرفر ---
+# --- 1. إعداد السيرفر لمنع النوم ---
 app = Flask('')
 @app.route('/')
-def home(): return "البوت يعمل بكفاءة قصوى! 🚀"
+def home(): return "البوت يعمل بكفاءة 100% مع التوقيت التلقائي 🚀"
 def run(): app.run(host='0.0.0.0', port=8080)
 def keep_alive(): Thread(target=run).start()
 
@@ -52,7 +53,6 @@ questions_pool = [
     {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3", "5", "7", "9"], "correct": "7"},
     {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"},
     {"q": "من هو النبي الذي بنى الكعبة مع ابنه إسماعيل؟", "options": ["إبراهيم عليه السلام", "نوح عليه السلام", "موسى عليه السلام", "عيسى عليه السلام"], "correct": "إبراهيم عليه السلام"},
-    # أضف بقية الـ 1000 سؤال هنا...
 ]
 
 hikam_list = [
@@ -63,22 +63,11 @@ hikam_list = [
     "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
 ]
 
-# --- 5. منطق اللعب (تم تصحيح خطأ التكرار هنا) ---
-def send_next_step(chat_id, score, is_continuation=False):
+# --- 5. منطق اللعب (النظام التلقائي) ---
+
+def send_actual_question(chat_id, score, prefix=""):
+    """دالة إرسال السؤال الفعلي"""
     try:
-        if score >= 1000:
-            bot.send_message(chat_id, "🏆 **تهانينا!** لقد أتممت 1000 سؤال بنجاح!")
-            return
-
-        # إظهار الحكمة فقط إذا كانت النتيجة من مضاعفات 20 ولم يضغط المستخدم للتو على "واصل"
-        if score > 0 and score % 20 == 0 and not is_continuation:
-            h = random.choice(hikam_list)
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("فهمت الحكمة.. واصل الرحلة 🚀", callback_data="force_next"))
-            bot.send_message(chat_id, f"💎 **حكمة المحطة ({score}):**\n\n« {h} »", reply_markup=markup, parse_mode="Markdown")
-            return
-
-        # إرسال السؤال التالي
         q_idx = score % len(questions_pool)
         q_data = questions_pool[q_idx]
         
@@ -86,23 +75,47 @@ def send_next_step(chat_id, score, is_continuation=False):
         btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}") for opt in q_data['options']]
         markup.add(*btns)
         
-        bot.send_message(chat_id, f"❓ *السؤال {score + 1}:*\n\n{q_data['q']}", reply_markup=markup, parse_mode="Markdown")
+        msg_text = f"{prefix}\n❓ *السؤال {score + 1}:*\n\n{q_data['q']}".strip()
+        bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error in send_actual_question: {e}")
 
-# --- 6. معالجة الردود ---
+def send_next_step(chat_id, score, prefix=""):
+    """الدالة المسؤولة عن فحص محطة الحكمة والمؤقت"""
+    try:
+        if score >= 1000:
+            bot.send_message(chat_id, "🏆 **تهانينا!** لقد أتممت 1000 سؤال بنجاح!")
+            return
+
+        # فحص محطة الحكمة (كل 20 سؤال)
+        if score > 0 and score % 20 == 0:
+            h = random.choice(hikam_list)
+            # إرسال الحكمة في رسالة مؤقتة
+            msg = bot.send_message(chat_id, f"💎 **استراحة قصيرة (7 ثوانٍ):**\n\n« {h} »", parse_mode="Markdown")
+            
+            # دالة الموقت لحذف الحكمة وإرسال السؤال
+            def auto_next():
+                try:
+                    bot.delete_message(chat_id, msg.message_id)
+                except: pass
+                send_actual_question(chat_id, score)
+            
+            threading.Timer(7.0, auto_next).start()
+            return
+
+        # إذا لم تكن محطة حكمة، نرسل السؤال مباشرة
+        send_actual_question(chat_id, score, prefix)
+        
+    except Exception as e:
+        print(f"Error in send_next_step: {e}")
+
+# --- 6. معالجة الأزرار ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_query(call):
     chat_id = call.message.chat.id
     score = get_user_score(chat_id)
     
-    if call.data == "force_next":
-        try: bot.delete_message(chat_id, call.message.message_id)
-        except: pass
-        # نمرر True لنتجاوز فحص الحكمة ونرسل السؤال مباشرة
-        send_next_step(chat_id, score, is_continuation=True)
-
-    elif call.data.startswith("ans|"):
+    if call.data.startswith("ans|"):
         selected = call.data.split("|")[1]
         q_idx = score % len(questions_pool)
         correct = questions_pool[q_idx]['correct']
@@ -129,7 +142,7 @@ def admin_panel(message):
 def stats(message):
     with get_db_connection() as conn:
         count = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
-    bot.send_message(ADMIN_ID, f"👥 عدد المستخدمين: {count}")
+    bot.send_message(ADMIN_ID, f"👥 المشتركين: {count}")
 
 @bot.message_handler(func=lambda m: m.text == "📢 إعلان عام" and m.from_user.id == ADMIN_ID)
 def broadcast_prompt(message):
@@ -148,11 +161,17 @@ def do_broadcast(message):
 @bot.message_handler(commands=['start'])
 def start(message):
     score = get_user_score(message.chat.id)
+    name = message.from_user.first_name
+    
     if score == 0:
-        set_user_score(message.chat.id, message.from_user.first_name, 0)
-        bot.send_message(message.chat.id, "🕋 مرحباً بك في تحدي المهاجر!")
-    send_next_step(message.chat.id, score)
+        set_user_score(message.chat.id, name, 0)
+        prefix = "🕋 مرحباً بك في تحدي المهاجر!\n"
+        send_next_step(message.chat.id, 0, prefix=prefix)
+    else:
+        prefix = f"👋 أهلاً بك مجدداً يا {name}!\n"
+        send_next_step(message.chat.id, score, prefix=prefix)
 
 if __name__ == "__main__":
     keep_alive()
+    print("البوت انطلق بنجاح!")
     bot.infinity_polling()
