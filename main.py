@@ -1,112 +1,105 @@
 # -*- coding: utf-8 -*-
-import os
-import time
+import io
+import asyncio
+import threading
+from flask import Flask
 from gtts import gTTS
-import pygame
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# إعداد محرك الصوت
-pygame.mixer.init()
+# --- الإعدادات (استبدل القيم أدناه) ---
+TOKEN = '8612878316:AAEKIklqPde9vN5--B310CkmB_BJ6ZQ3trI'
+ADMIN_ID = 123456789  # ضع الآيدي الخاص بك هنا
 
-# --- قائمة حِكم ابن عطاء الله السكندري (تم اختيار 50 حكمة كمثال للتدوير) ---
+# --- خادم ويب وهمي لإبقاء Render مستيقظاً ---
+server = Flask(__name__)
+
+@server.route('/')
+def index():
+    return "البوت يعمل بنجاح..."
+
+def run_flask():
+    server.run(host='0.0.0.0', port=8080)
+
+# --- قائمة حِكم ابن عطاء الله السكندري ---
 ibn_ataa_wisdom = [
     "من وجد الله فماذا فقد؟ ومن فقد الله فماذا وجد؟",
-    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك؛ فهو ضمن لك الإجابة فيما يختاره لك، لا فيما تختاره لنفسك.",
-    "إرادتك التجريد مع إقامة الله إياك في الأسباب من الشهوة الخفية. وإرادتك الأسباب مع إقامة الله إياك في التجريد انحطاط عن الهمة العلية.",
-    "سوابق الهمم لا تخرق أسوار الأقدار.",
+    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك؛ فهو ضمن لك الإجابة فيما يختاره لك.",
     "أرح نفسك من التدبير، فما قام به غيرك عنك لا تقم به أنت لنفسك.",
-    "اجتهادك فيما ضمن لك، وتقصيرك فيما طلب منك، دليل على انطماس البصيرة منك.",
-    "ما توقف مطلب أنت طالبه بربك، ولا تيسر مطلب أنت طالبه بنفسك.",
-    "معصية أورثت ذلاً وانكساراً خير من طاعة أورثت عزاً واستكباراً.",
-    "ربما أعطاك فمنعك، وربما منعك فأعطاك.",
-    "متى أطلق لسانك بالطلب فاعلم أنه يريد أن يعطيك.",
-    "لا ترحل من كون إلى كون فتكون كحمار الرحى، يسير والمكان الذي ارتحل إليه هو الذي ارتحل عنه.",
-    "تشوفك إلى ما بطن فيك من العيوب خير من تشوفك إلى ما حجب عنك من الغيوب."
+    "معصية أورثت ذلاً وانكساراً خير من طاعة أورثت عزاً واستكباراً."
 ]
 
-# --- هيكل الـ 1000 سؤال (تأكد من وضع القائمة الكاملة هنا) ---
+# --- قاعدة بيانات الـ 1000 سؤال ---
 questions_db = [
     {"q": "ما هي السورة التي تسمى عروس القرآن؟", "options": ["الرحمن", "يس", "الواقعة", "الملك"], "correct": "الرحمن"},
-    # ... ضع هنا الـ 1000 سؤال بالكامل التي استلمتها سابقاً ...
+    {"q": "من هو النبي الذي لُقب بكليم الله؟", "options": ["موسى عليه السلام", "محمد ﷺ", "عيسى عليه السلام", "إبراهيم عليه السلام"], "correct": "موسى عليه السلام"},
+    # ... أضف بقية الـ 1000 سؤال هنا ...
 ]
 
-# --- إعدادات المدير (Admin Config) ---
-ADMIN_KEY = "admin789"
-
-def speak_wisdom(text):
-    """تحويل حكمة ابن عطاء الله إلى صوت وتشغيلها"""
+async def send_wisdom_voice(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    """تحويل الحكمة لصوت وإرسالها كبصمة صوتية"""
     try:
-        print(f"\n📢 نداء الحكمة: {text}")
         tts = gTTS(text=text, lang='ar')
-        tts.save("temp_voice.mp3")
-        pygame.mixer.music.load("temp_voice.mp3")
-        pygame.mixer.music.play()
-        while pygame.mixer.music.get_busy():
-            time.sleep(1)
-        pygame.mixer.music.unload()
-        os.remove("temp_voice.mp3")
-    except Exception as e:
-        print(f"خطأ في النظام الصوتي: {e}")
+        audio_io = io.BytesIO()
+        tts.write_to_fp(audio_io)
+        audio_io.seek(0)
+        await context.bot.send_voice(chat_id=update.effective_chat.id, voice=audio_io, caption=f"✨ حكمة ابن عطاء الله:\n{text}")
+    except: pass
 
-def admin_console():
-    """أوامر المدير للتحكم في البوت"""
-    print("\n🔐 [نظام الإدارة المركزي]")
-    entry = input("أدخل رمز الوصول: ")
-    if entry == ADMIN_KEY:
-        print("--- الأوامر المتاحة ---")
-        print("1. تخطي 100 سؤال\n2. إنهاء الجلسة فوراً\n3. تصفير النتيجة")
-        cmd = input("اختر الأمر: ")
-        if cmd == "1": return "skip"
-        if cmd == "2": return "exit"
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['score'] = 0
+    context.user_data['current_q'] = 0
+    await update.message.reply_text("✨ أهلاً بك! اضغط /quiz للبدء بالمسابقة.")
+
+async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    idx = context.user_data.get('current_q', 0)
+    if idx >= len(questions_db):
+        await update.effective_message.reply_text(f"🏁 انتهت المسابقة! نتيجتك: {context.user_data.get('score', 0)}")
+        return
+
+    q_item = questions_db[idx]
+    keyboard = [[InlineKeyboardButton(opt, callback_data=str(i))] for i, opt in enumerate(q_item['options'])]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    msg_text = f"السؤال [{idx + 1}/1000]:\n\n{q_item['q']}"
+    if update.callback_query:
+        await update.callback_query.message.reply_text(msg_text, reply_markup=reply_markup)
     else:
-        print("❌ رمز خاطئ، عودة للمسابقة...")
-    return None
+        await update.message.reply_text(msg_text, reply_markup=reply_markup)
 
-def run_engine():
-    score = 0
-    wisdom_ptr = 0
-    total_q = len(questions_db)
+async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    print("✨ بسم الله نبدأ مسابقة الـ 1000 سؤال وحِكم ابن عطاء الله ✨")
+    idx = context.user_data.get('current_q', 0)
+    user_choice = int(query.data)
+    correct_ans = questions_db[idx]['correct']
     
-    i = 0
-    while i < total_q:
-        item = questions_db[i]
-        print(f"\n------------------------------")
-        print(f"السؤال [{i+1}/1000] | النتيجة الحالية: {score}")
-        print(f"------------------------------")
-        print(item['q'])
-        for idx, opt in enumerate(item['options']):
-            print(f"  {idx+1}) {opt}")
-            
-        user_input = input("\nإجابتك (رقم) أو (admin): ").strip()
+    if questions_db[idx]['options'][user_choice] == correct_ans:
+        context.user_data['score'] = context.user_data.get('score', 0) + 1
+        await query.edit_message_text(f"✅ إجابة صحيحة!")
+    else:
+        await query.edit_message_text(f"❌ خطأ. الصواب: {correct_ans}")
 
-        # معالجة أوامر المدير
-        if user_input.lower() == 'admin':
-            action = admin_console()
-            if action == "skip": i += 100; continue
-            if action == "exit": break
-            continue
+    context.user_data['current_q'] = idx + 1
+    new_idx = context.user_data['current_q']
 
-        # معالجة الإجابة
-        try:
-            if item['options'][int(user_input)-1] == item['correct']:
-                print("✅ أصبت، بارك الله فيك.")
-                score += 1
-            else:
-                print(f"❌ خطأ. الإجابة الصحيحة: {item['correct']}")
-        except:
-            print("⚠️ إدخال غير صحيح.")
+    if new_idx % 20 == 0 and new_idx != 0:
+        wisdom = ibn_ataa_wisdom[(new_idx // 20 - 1) % len(ibn_ataa_wisdom)]
+        await send_wisdom_voice(update, context, wisdom)
+        await asyncio.sleep(1)
 
-        # --- الفاصل الروحاني (كل 20 سؤالاً) ---
-        if (i + 1) % 20 == 0:
-            current_w = ibn_ataa_wisdom[wisdom_ptr % len(ibn_ataa_wisdom)]
-            speak_wisdom(current_w)
-            wisdom_ptr += 1
-            input("\nاضغط Enter للمتابعة بعد الحكمة...")
+    await ask_question(update, context)
 
-        i += 1
-
-    print(f"\n🏁 تم الانتهاء! نتيجتك النهائية هي {score} من {i}")
-
-if __name__ == "__main__":
-    run_engine()
+if __name__ == '__main__':
+    # تشغيل Flask في خيط منفصل (Thread)
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # تشغيل البوت
+    application = ApplicationBuilder().token(TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("quiz", ask_question))
+    application.add_handler(CallbackQueryHandler(handle_answer))
+    
+    print("البوت يعمل الآن...")
+    application.run_polling()
