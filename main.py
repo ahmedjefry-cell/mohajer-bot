@@ -7,10 +7,10 @@ from flask import Flask
 from threading import Thread
 from gtts import gTTS
 
-# --- 1. إعداد السيرفر ---
+# --- 1. إعداد السيرفر (Render) ---
 app = Flask('')
 @app.route('/')
-def home(): return "البوت يعمل بكفاءة! 🎙️"
+def home(): return "البوت يعمل بالأسئلة الجديدة! 🕋"
 
 def run():
     port = int(os.environ.get("PORT", 8080))
@@ -45,23 +45,39 @@ def update_user_score(user_id, new_score):
         conn.execute('UPDATE users SET score = ? WHERE id = ?', (new_score, user_id))
         conn.commit()
 
-# --- 4. محتوى الأسئلة (تأكد من إضافة 40 سؤال هنا) ---
+# --- 4. الأسئلة الجديدة من موقع المفيد ---
 questions_pool = [
-    {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
-    {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
-    # ... أضف بقية الأسئلة هنا حتى تكتمل الـ 40 ...
+    {"q": "كم عدد أولي العزم من الرسل؟", "options": ["أربعة", "خمسة", "ستة"], "correct": "خمسة"},
+    {"q": "من هو النبي الذي آمن به كل قومه؟", "options": ["يونس عليه السلام", "صالح عليه السلام", "نوح عليه السلام"], "correct": "يونس عليه السلام"},
+    {"q": "ما اسم العبد الصالح الذي رافقه موسى عليه السلام؟", "options": ["عزير", "الخضر", "لقمان"], "correct": "الخضر"},
+    {"q": "من هو النبي الملقب بـ 'روح الله'؟", "options": ["عيسى عليه السلام", "موسى عليه السلام", "إبراهيم عليه السلام"], "correct": "عيسى عليه السلام"},
+    {"q": "أين صعد الرسول ﷺ عند الجهر بالدعوة ليدعو القبائل؟", "options": ["جبل أحد", "جبل الصفا", "جبل المروة"], "correct": "جبل الصفا"},
+    {"q": "في أي عام وشهر كان فتح مكة؟", "options": ["رمضان - 8 هـ", "شوال - 8 هـ", "محرم - 8 هـ"], "correct": "رمضان - 8 هـ"},
+    {"q": "ما هو عدد السجدات في القرآن الكريم؟", "options": ["10 سجدات", "15 سجدة", "20 سجدة"], "correct": "15 سجدة"},
+    {"q": "ما هي السورة التي يبكي الشيطان عند سماعها؟", "options": ["سورة الفاتحة", "سورة السجدة", "سورة البقرة"], "correct": "سورة السجدة"},
+    {"q": "من هو آخر من توفي من العشرة المبشرين بالجنة؟", "options": ["سعد بن أبي وقاص", "عثمان بن عفان", "أبو بكر الصديق"], "correct": "سعد بن أبي وقاص"},
+    {"q": "ما هي العدة التي أقرها الإسلام للمرأة المطلقة؟", "options": ["حيضتان", "ثلاث حيضات", "أربع حيضات"], "correct": "ثلاث حيضات"},
+    {"q": "من هو صفي الله من الأنبياء؟", "options": ["آدم عليه السلام", "نوح عليه السلام", "إبراهيم عليه السلام"], "correct": "آدم عليه السلام"},
+    {"q": "من هي ذات النطاقين؟", "options": ["أسماء بنت أبي بكر", "عائشة بنت أبي بكر", "فاطمة الزهراء"], "correct": "أسماء بنت أبي بكر"},
+    {"q": "ما هي السورة التي تسمى 'أم الكتاب'؟", "options": ["سورة البقرة", "سورة الفاتحة", "سورة الإخلاص"], "correct": "سورة الفاتحة"},
+    {"q": "من هو خاتم الأنبياء والمرسلين؟", "options": ["عيسى عليه السلام", "موسى عليه السلام", "محمد ﷺ"], "correct": "محمد ﷺ"},
+    {"q": "كم عدد أركان الإسلام؟", "options": ["خمسة", "ستة", "سبعة"], "correct": "خمسة"},
+    {"q": "ما هي السورة التي تحدثت عن تقسيم الغنائم؟", "options": ["سورة الأنفال", "سورة التوبة", "سورة الحج"], "correct": "سورة الأنفال"},
+    {"q": "من هو الصحابي الذي يلقب بـ 'إمام القراء'؟", "options": ["زيد بن ثابت", "معاذ بن جبل", "أبي بن كعب"], "correct": "معاذ بن جبل"},
+    {"q": "ما معنى 'الأعراف'؟", "options": ["وديان في النار", "تلال بين الجنة والنار", "أنهار في الجنة"], "correct": "تلال بين الجنة والنار"},
+    {"q": "من هو أول من جاهد في سبيل الله؟", "options": ["إدريس عليه السلام", "إبراهيم عليه السلام", "نوح عليه السلام"], "correct": "إدريس عليه السلام"},
+    {"q": "ما هي الغزوة التي أُسرت فيها الشيماء شقيقة الرسول ﷺ؟", "options": ["غزوة حنين", "غزوة بدر", "غزوة الخندق"], "correct": "غزوة حنين"}
 ]
 
 hikam_list = [
     "من علامة الاعتماد على العمل، نقصان الرجاء عند وجود الزلل.",
     "أرح نفسك من التدبير، فما قام به غيرك عنك لا تقم به لنفسك.",
-    "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
+    "اجتهادك فيما ضمن لك، وتقصيرك فيما طلب منك، دليل على انطماس البصيرة."
 ]
 
 # --- 5. منطق إرسال السؤال ---
 def send_question(chat_id, score, prefix=""):
-    # المنطق يضمن عدم التكرار حتى تنتهي المصفوفة كاملة
-    q_idx = score % len(questions_pool) 
+    q_idx = score % len(questions_pool)
     q_data = questions_pool[q_idx]
     
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -75,7 +91,7 @@ def send_question(chat_id, score, prefix=""):
 @bot.message_handler(commands=['start'])
 def welcome(message):
     score = get_user_score(message.from_user.id)
-    send_question(message.chat.id, score, "مرحباً بك في رحلة المهاجر! 🕋")
+    send_question(message.chat.id, score, "مرحباً بك في بوت المهاجر! 🕋\nتم تحديث الأسئلة بنجاح.")
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith('ans|'))
 def check_answer(call):
@@ -83,10 +99,9 @@ def check_answer(call):
     current_score = int(current_score)
     user_id = call.from_user.id
     
-    # جلب السكور الحقيقي من القاعدة للتأكد من عدم التلاعب
     real_score = get_user_score(user_id)
     if current_score != real_score:
-        bot.answer_callback_query(call.id, "عذراً، هذا السؤال انتهى صلاحيته. أجب على الأحدث!")
+        bot.answer_callback_query(call.id, "هذا السؤال قديم!")
         return
 
     q_idx = current_score % len(questions_pool)
@@ -94,15 +109,15 @@ def check_answer(call):
         new_score = current_score + 1
         update_user_score(user_id, new_score)
         
-        # --- التعديل المطلوب: الحكمة تظهر كل 20 سؤال فقط ---
+        # الحكمة تظهر فقط كل 20 سؤالاً
         if new_score > 0 and new_score % 20 == 0:
             hikma = random.choice(hikam_list)
             try:
-                tts = gTTS(text=f"مبروك وصولك للمستوى {new_score}. إليك هذه الحكمة: {hikma}", lang='ar')
+                tts = gTTS(text=f"أحسنت! إليك هذه الحكمة: {hikma}", lang='ar')
                 voice_file = f"v_{user_id}.mp3"
                 tts.save(voice_file)
                 with open(voice_file, 'rb') as v:
-                    bot.send_voice(call.message.chat.id, v, caption=f"✨ حكمة المهاجر (المستوى {new_score}):\n_{hikma}_", parse_mode="Markdown")
+                    bot.send_voice(call.message.chat.id, v, caption=f"✨ حكمة المستوى {new_score}:\n_{hikma}_", parse_mode="Markdown")
                 os.remove(voice_file)
             except:
                 bot.send_message(call.message.chat.id, f"✨ حكمة المستوى {new_score}: {hikma}")
@@ -111,100 +126,6 @@ def check_answer(call):
     else:
         bot.answer_callback_query(call.id, "إجابة خاطئة! حاول مجدداً ❌", show_alert=True)
 
-if __name__ == '__main__':
-    keep_alive()
-    bot.infinity_polling()
-def get_user_score(user_id):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute('SELECT score FROM users WHERE id = ?', (user_id,))
-        res = cursor.fetchone()
-        if res: return res[0]
-        else:
-            conn.execute('INSERT INTO users (id, score) VALUES (?, ?)', (user_id, 0))
-            conn.commit()
-            return 0
-
-def update_user_score(user_id, new_score):
-    with sqlite3.connect(DB_NAME) as conn:
-        conn.execute('UPDATE users SET score = ? WHERE id = ?', (new_score, user_id))
-        conn.commit()
-
-# --- 4. المحتوى ---
-questions_pool = [
-    {"q": "كم عدد أركان الإسلام؟ 🕋", "options": ["3", "5", "7", "4"], "correct": "5"},
-    {"q": "ما هو الركن الأول من أركان الإسلام؟", "options": ["الصلاة", "الشهادتان", "الزكاة", "الحج"], "correct": "الشهادتان"},
-    {"q": "كم عدد أركان الإيمان؟ ✨", "options": ["5", "6", "7", "4"], "correct": "6"},
-    {"q": "ما هو أعلى مراتب الدين؟ 🌟", "options": ["الإسلام", "الإيمان", "الإحسان", "التقوى"], "correct": "الإحسان"},
-    {"q": "وصلنا الكعبة المشرفة! كم شوطاً نطوف حولها؟ 🕋", "options": ["3", "5", "7", "9"], "correct": "7"},
-    {"q": "ماذا نشرب من ماء مبارك داخل الحرم؟ 💧", "options": ["ماء ورد", "ماء زمزم", "ماء المطر", "عصير"], "correct": "ماء زمزم"},
-    {"q": "من هو النبي الذي بنى الكعبة مع ابنه إسماعيل؟", "options": ["إبراهيم عليه السلام", "نوح عليه السلام", "موسى عليه السلام", "عيسى عليه السلام"], "correct": "إبراهيم عليه السلام"},
-]
-
-hikam_list = [
-    "من علامة الاعتماد على العمل، نقصان الرجاء عند وجود الزلل.",
-    "أرح نفسك من التدبير، فما قام به غيرك عنك لا تقم به لنفسك.",
-    "اجتهادك فيما ضمن لك، وتقصيرك فيما طلب منك، دليل على انطماس البصيرة منك.",
-    "لا يكن تأخر أمد العطاء مع الإلحاح في الدعاء موجباً ليأسك.",
-    "لا تصحب من لا ينهضك حاله، ولا يدلك على الله مقاله."
-]
-
-# --- 5. منطق الأسئلة ---
-
-def send_question(chat_id, score, prefix=""):
-    q_idx = score % len(questions_pool)
-    q_data = questions_pool[q_idx]
-    
-    markup = types.InlineKeyboardMarkup(row_width=2)
-    btns = [types.InlineKeyboardButton(opt, callback_data=f"ans|{opt}|{score}") for opt in q_data['options']]
-    markup.add(*btns)
-    
-    msg_text = f"{prefix}\n\n❓ *السؤال {score + 1}:*\n{q_data['q']}"
-    bot.send_message(chat_id, msg_text, reply_markup=markup, parse_mode="Markdown")
-
-# --- 6. معالجة الرسائل ---
-
-@bot.message_handler(commands=['start'])
-def welcome(message):
-    score = get_user_score(message.from_user.id)
-    send_question(message.chat.id, score, "مرحباً بك في رحلة المهاجر! 🕋")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith('ans|'))
-def check_answer(call):
-    data = call.data.split('|')
-    user_answer = data[1]
-    current_score = int(data[2])
-    user_id = call.from_user.id
-    
-    q_idx = current_score % len(questions_pool)
-    correct_answer = questions_pool[q_idx]['correct']
-    
-    if user_answer == correct_answer:
-        new_score = current_score + 1
-        update_user_score(user_id, new_score)
-        
-        # اختيار حكمة عشوائية
-        hikma = random.choice(hikam_list)
-        
-        # تحويل الحكمة لصوت وإرسالها (بدون حذف)
-        try:
-            tts = gTTS(text=hikma, lang='ar')
-            voice_file = f"voice_{user_id}.mp3"
-            tts.save(voice_file)
-            
-            with open(voice_file, 'rb') as voice:
-                bot.send_voice(call.message.chat.id, voice, caption=f"✨ حكمة لك:\n_{hikma}_", parse_mode="Markdown")
-            
-            os.remove(voice_file) # حذف الملف المؤقت من السيرفر فقط وليس من التليجرام
-        except Exception as e:
-            bot.send_message(call.message.chat.id, f"✨ حكمة لك:\n{hikma}")
-
-        # الانتقال للسؤال التالي
-        send_question(call.message.chat.id, new_score, "إجابة صحيحة! استمر في رحلتك..")
-    else:
-        bot.answer_callback_query(call.id, "إجابة خاطئة! حاول مجدداً ❌", show_alert=True)
-
-# --- التشغيل ---
 if __name__ == '__main__':
     keep_alive()
     bot.infinity_polling()
